@@ -1,7 +1,22 @@
-import 'dotenv/config'
+import fs from 'node:fs'
+import path from 'node:path'
+import { config } from 'dotenv'
 import { z } from 'zod'
 
 const bool = z.union([z.boolean(), z.enum(['true', 'false']).transform((value) => value === 'true')])
+const explicitEnv = { ...process.env }
+const dotEnvPath = path.resolve(process.cwd(), '.env')
+const dotEnv = fs.existsSync(dotEnvPath) ? config({ path: dotEnvPath, override: false }).parsed ?? {} : {}
+const mergedEnv = { ...dotEnv, ...explicitEnv }
+const isTest = (explicitEnv.NODE_ENV ?? dotEnv.NODE_ENV ?? 'development') === 'test'
+const testSafeEnv = isTest ? {
+  ...mergedEnv,
+  COOKIE_SECURE: explicitEnv.COOKIE_SECURE ?? 'false',
+  COOKIE_SAMESITE: explicitEnv.COOKIE_SAMESITE ?? 'lax',
+  STORAGE_DRIVER: explicitEnv.STORAGE_DRIVER ?? 'local',
+  ARCHIVE_STORAGE_DRIVER: explicitEnv.ARCHIVE_STORAGE_DRIVER ?? 'local',
+  RATE_LIMIT_ENABLED: explicitEnv.RATE_LIMIT_ENABLED ?? 'false',
+} : mergedEnv
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -68,7 +83,7 @@ const schema = z.object({
   }
 })
 
-const parsed = schema.safeParse(process.env)
+const parsed = schema.safeParse(testSafeEnv)
 if (!parsed.success) {
   const lines = parsed.error.issues.map((issue) => `  - ${issue.path.join('.') || 'env'}: ${issue.message}`)
   console.error(`\nInvalid environment configuration:\n${lines.join('\n')}\n\nCopy .env.example to .env and fill in the values.\n`)
